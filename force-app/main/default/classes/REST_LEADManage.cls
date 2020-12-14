@@ -1,24 +1,29 @@
 @RestResource(urlMapping ='/myLeadResource/LEADManage/*')
-
-
 /**
- * Rest_LeadManage Class
- * Post Method Url ='/services/apexrest/myLeadResource/LEADManage'
+ *  @Class Name : Rest_LeadManage
+ *  @Post Method Url ='/services/apexrest/myLeadResource/LEADManage'
  */
 global with sharing class REST_LEADManage {
-    /*
-     * Post Methdod 
-     */
+    
+    /**
+    *@Name: doPost
+    *@Description: This method is used for control Post request and also have functionality to manage wrapper with the help of deserialize JSON.
+                   This Method have functionality of Lead,Product_Interest__c,Source_Tracker__c Objects to control's these records and relationship. 
+    *@Return type: void
+    *@Arguments: No arguments.
+    *@CreatedBy: Bharat Sharma
+    **/
     @HttpPost
-    global static void doPost(){
+    global static void doPost() {
         Map<String,Lead> leadMap = new Map<String,Lead>();
         Map<String,Map<String,Product_Interest__c>> leadProductToInsertMap = new Map<String,Map<String,Product_Interest__c>>();
         Map<String,Map<String,List<Source_Tracker__c>>> sourceToInsertMap = new Map<String,Map<String,List<Source_Tracker__c>>>();
         List<Source_Tracker__c> sourceTrackertoInsert = new List<Source_Tracker__c>();
         List<String> productNameList=new List<String>();
-        RestResponse res = RestContext.response;
+    
+        RestResponse res = RestContext.response; //Response of API.
+        String requestBody = RestContext.request.requestBody.toString(); //Convert JSON Post request to String.
 
-        String requestBody = RestContext.request.requestBody.toString();    
         LeadWrapper leadwrapperResponse = new LeadWrapper();
         leadwrapperResponse = (LeadWrapper)JSON.deserialize(requestBody, LeadWrapper.class);
           
@@ -55,9 +60,9 @@ global with sharing class REST_LEADManage {
             }                
         }  
         
-        System.debug(leadMap.keySet());
         List<Lead> LeadToUpsertOldList = [SELECT Id, Name, Phone,Email, (SELECT Id,Name FROM Product_Interests__r) FROM Lead WHERE phone IN: leadMap.keySet()];
         List<Lead> upsertLeadList = new List<Lead>();
+        
         if(LeadToUpsertOldList.size() > 0){
             for(Integer i = 0; i < LeadToUpsertOldList.size(); i++) {
                 Lead leadObj = leadMap.get(LeadToUpsertOldList[i].phone);
@@ -72,13 +77,14 @@ global with sharing class REST_LEADManage {
 
        List<Product_Interest__c> productToInsertList = new List<Product_Interest__c>();
        List<Product_Interest__c> productToUpdateList = new List<Product_Interest__c>();
-       Map<String,Product_Interest__c> productToUpdateMap=new Map<String,Product_Interest__c>();
+
+       Map<String,Product_Interest__c> productToUpdateMap = new Map<String,Product_Interest__c>();
        Map<String,Product_Interest__c> productToInsertMap = new Map<String,Product_Interest__c>();
        Map<String,Product_Interest__c> productMap = new Map<String,Product_Interest__c>();
       
        List<Lead> LeadToUpsertList = [SELECT Id, Name, Phone,Email, (SELECT Id,Name,Counter__c FROM Product_Interests__r) FROM Lead WHERE phone IN: leadMap.keySet()]; 
-      System.debug('LeadToUpsertList'+LeadToUpsertList);
-       if(LeadToUpsertList.size() > 0 || upsertLeadList.size()==0){
+
+       if(LeadToUpsertList.size() > 0 || upsertLeadList.size() == 0){
             for(Integer i = 0; i < LeadToUpsertList.size(); i++) {
                 Lead leadObj = leadMap.get(LeadToUpsertList[i].phone);
                 LeadToUpsertList[i].LastName = leadObj.LastName;
@@ -87,16 +93,11 @@ global with sharing class REST_LEADManage {
             }
        }    
        
-       
-       for(Integer j = 0 ; j < LeadToUpsertList.size() ; j++) {
-           System.debug('**LeadToUpsertList[j].Product_Interests__r'+LeadToUpsertList[j].Product_Interests__r);
+        for(Integer j = 0 ; j < LeadToUpsertList.size() ; j++) {
             for(Product_Interest__c product:LeadToUpsertList[j].Product_Interests__r){
-                System.debug('product '+product);
                 productMap.put(product.Name, product);
             }
-            System.debug('**productMap**'+productMap);
             for(String productName : leadProductToInsertMap.get(LeadToUpsertList[j].phone).keySet()){
-                System.debug('productName'+productName);
                 if(!productMap.containsKey(productName) && !productToInsertMap.containsKey(LeadToUpsertList[j].phone + productName)){
                     Product_Interest__c proObject = leadProductToInsertMap.get(LeadToUpsertList[j].phone).get(productName);
                     proObject.LeadToProduct__c = LeadToUpsertList[j].id;
@@ -104,32 +105,32 @@ global with sharing class REST_LEADManage {
                     productToInsertList.add(proObject);
                 } else {
                     Product_Interest__c pdtObject = LeadToUpsertList[j].Product_Interests__r;
-                    System.debug('***pdtObject'+pdtObject.Name);
                     pdtObject.Counter__c= pdtObject.Counter__c + 1;
                     productToUpdateMap.put(pdtObject.Id,pdtObject);
-                    //productToUpdateList.add(pdtObject);
                 }
             }
         }       
         
+        //Insert Product in Product_Interest__c Object.
         insert productToInsertMap.values();
        
+        //update counter values for same product.
         if(!productToUpdateMap.isEmpty()) {
-            System.debug('### productToUpdateMap'+productToUpdateMap);
             update productToUpdateMap.values();
         }
         
         List<Source_Tracker__c> sourceToInsertList = new List<Source_Tracker__c>();
-        
-        Map<String,Source_Tracker__c> sourceInsertMap=new Map<String,Source_Tracker__c>();
-        for(lead leadObjct : upsertLeadList){
+        Map<String,Source_Tracker__c> sourceInsertMap = new Map<String,Source_Tracker__c>();
+
+        /**********************Manage source and sub source of Products.************************/
+        for(lead leadObjct : upsertLeadList) {
             for(Product_Interest__c product : productToInsertList ) {
                  if(product.LeadToProduct__c == leadObjct.id) {
                     for(Source_Tracker__c source : sourceToInsertMap.get(leadObjct.phone).get(leadObjct.phone)) {
                         Source_Tracker__c sourceObj = new Source_Tracker__c();          
-                        if(!sourceInsertMap.containsKey(source.Sub_Source__c + leadObjct.phone)){
+                        if(!sourceInsertMap.containsKey(source.Sub_Source__c + leadObjct.phone)) {
                             sourceObj.Source_tracker__c = source.Source_tracker__c;
-                            sourceObj.Sub_Source__c=source.Sub_Source__c;
+                            sourceObj.Sub_Source__c = source.Sub_Source__c;
                             sourceObj.SourcesOfProduct__c = product.id;
                             sourceInsertMap.put(source.Sub_Source__c + leadObjct.phone,sourceObj);
                         }
@@ -138,6 +139,7 @@ global with sharing class REST_LEADManage {
             }
         }
         try{
+            //Upsert Source of Product.
             upsert sourceInsertMap.values();
         }catch(Exception e){
             System.debug(e.getMessage());
